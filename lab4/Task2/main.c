@@ -1,25 +1,53 @@
 #include "AT91SAM9263.h"
 
-#define RXRDY 1<<0
-#define TXRDY 1<<1
-#define DTXD 1<31
-#define BOUNDRATE 115200 
+#define BAUDRATE 115200 
 #define MCK 100000000
+#define DIVISOR 16
+#define ALL_INTERRUPTS 0xFFFFFFFF
+#define SIZE 0x10
+#define ENTER 13
+
+struct Buffer
+{
+	char data[SIZE];
+	unsigned int head, tail;	
+}FIFO;
 
 void dbgu_print_ascii(const char *a) {}
-int toupper(int);
+int toupper( int ch );
+
 void DBGU_init(void)
 {
-	AT91C_BASE_DBGU->DBGU_IDR = RXRDY | TXRDY;
-	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RSTRX | AT91C_US_RXDIS;
-	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RSTTX | AT91C_US_TXDIS;
-	AT91C_BASE_PIOC->PIO_ASR = AT91C_PC31_DTXD | AT91C_PC30_DRXD;
-	AT91C_BASE_PIOC->PIO_PDR = AT91C_PC31_DTXD | AT91C_PC30_DRXD;
-	AT91C_BASE_DBGU->DBGU_BRGR = MCK/(16*BOUNDRATE);
-	AT91C_BASE_DBGU->DBGU_MR= AT91C_US_CHMODE_NORMAL |  AT91C_US_PAR_NONE;
-	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;
-	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RXEN;
+	AT91C_BASE_DBGU->DBGU_IDR = ALL_INTERRUPTS;//deactivate all interrupts
+	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RSTRX | AT91C_US_RXDIS;//reset and turn off receiver
+	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RSTTX | AT91C_US_TXDIS;//reset and turn off transmitter
+	AT91C_BASE_PIOC->PIO_ASR = AT91C_PC31_DTXD;//enables peripheral control to transmitter
+	AT91C_BASE_PIOC->PIO_PDR = AT91C_PC31_DTXD;//assigns I/O line to transmitter
+	AT91C_BASE_DBGU->DBGU_BRGR = MCK/(DIVISOR*BAUDRATE);//configure throughout
+	AT91C_BASE_DBGU->DBGU_MR= AT91C_US_CHMODE_NORMAL |  AT91C_US_PAR_NONE;//operation mode
+	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;//turn on transmitter
+	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RXEN;//turn on receiver
 }
+
+int put(char input)
+{
+	if((FIFO.head == SIZE -1 && FIFO.tail == 0) || (FIFO.tail-FIFO.head == 1))
+		return 0;
+	FIFO.data[FIFO.head++] = input;
+	if(FIFO.head == SIZE)
+		FIFO.head = 0;
+	return 1;
+}
+int get(char* output)
+{
+	if(FIFO.head == FIFO.tail)
+		return 0;
+	*output = FIFO.data[FIFO.tail++];
+	if(FIFO.tail == SIZE)
+		FIFO.tail = 0;
+	return 1;
+}
+
 void sendChar(char letter)
 {
 	while(!(AT91C_BASE_DBGU->DBGU_CSR & AT91C_US_TXRDY))
@@ -27,26 +55,6 @@ void sendChar(char letter)
 				
 	}
 	AT91C_BASE_DBGU->DBGU_THR = (unsigned int)letter;
-
-}
-
-void displayAlphabet()
-{
-	char letter;
-	for(letter='A'; letter <= 'Z'; ++letter)
-	{
-		sendChar(letter);
-	}
-}
-
-void displayString(char* string)
-{
-	unsigned int i;
-	for(i=0; string[i]!='\0'; ++i)
-	{
-		sendChar(string[i]);
-	}
-
 }
 
 char readChar()
@@ -58,17 +66,47 @@ char readChar()
 	return AT91C_BASE_DBGU->DBGU_RHR;
 
 }
+void displayFromBuffer()
+{
+	char* readData;
+	while(get(readData))
+	{
+		sendChar(toupper(*readData));
+	}
+
+}
+void newLine()
+{
+	sendChar('\n');
+	sendChar('\r');
+}
 
 void readAndCapitalize()
 {
-	char read = readChar();
+	char input = readChar();
+	sendChar(input);
+	if(input == ENTER)
+	{
+		newLine();
+		displayFromBuffer();
+		newLine();
+	}
+	else	
+		put(input);
 	
-	sendChar(toupper(read);
 }
+
+void bufferInit()
+{
+	FIFO.head = 0;
+	FIFO.tail = FIFO.head;
+}
+
 
 void main()
 {
     	DBGU_init();	
+	bufferInit();
 	
    	while(1)
 	{

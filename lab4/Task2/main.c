@@ -105,7 +105,7 @@ void bufferInit()
 
 void main()
 {
-    	DBGU_init();	
+    DBGU_init();
 	bufferInit();
 	
    	while(1)

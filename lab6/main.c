@@ -1,12 +1,5 @@
 #include "AT91SAM9263.h"
 
-#define LED_2 1 << 29
-#define SLEEP_TIME 1000
-#define MS 6250
-#define ON 1
-#define OFF 0
-#define PITS_FLAG 1<<0
-
 #define BAUDRATE 115200
 #define MCK 100000000
 #define DIVISOR 16
@@ -39,7 +32,7 @@ void DBGU_init(void)
 	AT91C_BASE_PIOC->PIO_PDR = AT91C_PC31_DTXD;//assigns I/O line to transmitter
 	AT91C_BASE_DBGU->DBGU_BRGR = MCK/(DIVISOR*BAUDRATE);//configure throughout
 	AT91C_BASE_DBGU->DBGU_MR= AT91C_US_CHMODE_NORMAL |  AT91C_US_PAR_NONE;//operation mode
-	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;//turn on transmitter
+	//AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;//turn on transmitter
 	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RXEN;//turn on receiver
 }
 
@@ -72,7 +65,6 @@ char readChar()
 {
 	while(!(AT91C_BASE_DBGU->DBGU_CSR & AT91C_US_RXRDY));
 	return AT91C_BASE_DBGU->DBGU_RHR;
-
 }
 
 void displayString(char* string)
@@ -82,51 +74,52 @@ void displayString(char* string)
 	{
 		sendChar(string[i]);
 	}
-
 }
 
-void changeFIFOMode()
-{
-    if(FIFO_MODE == READ)
-    {
-        FIFO_MODE = WRITE;
-    }
-    else if(FIFO_MODE == WRITE)
-    {
-        FIFO_MODE = READ;
-    }
-
-}
-
-void displayFromBuffer()
-{
-	char readData;
-
-	if(get(&readData))
-	    sendChar(toupper(readData));
-	else
-	    changeFIFOMode();
-
-}
 void newLine()
 {
 	sendChar('\n');
 	sendChar('\r');
 }
 
+void displayFromBuffer()
+{
+
+	char readData;
+	
+	if(get(&readData))
+	    sendChar(toupper(readData));
+	else
+	{ 
+		newLine();
+		AT91C_BASE_DBGU->DBGU_CR=AT91C_US_TXDIS;
+	}
+}
+
 void read()
 {
 	char input = readChar();
+	int full;
+	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;
 	sendChar(input);
+	AT91C_BASE_DBGU->DBGU_CR=AT91C_US_TXDIS;
 	if(input == ENTER)
 	{
-		newLine();
-        displayFromBuffer();
+		AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;
 		newLine();
 	}
 	else
-		put(input);
-
+	{
+		full = put(input);
+		if(full == 0)
+		{
+			AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;
+			newLine();
+			displayString("Fifo overflow!");
+			newLine();
+			AT91C_BASE_DBGU->DBGU_CR=AT91C_US_TXDIS;
+		}
+	}
 }
 
 void bufferInit()
@@ -138,15 +131,17 @@ void bufferInit()
 
 void DBGUInterruptHandler(void)
 {
-	if(AT91C_BASE_DBGU->DBGU_CSR & AT91C_BASE_DBGU->DBGU_IMR)
+	int intStatus;
+	intStatus = AT91C_BASE_DBGU->DBGU_CSR;
+	if(intStatus & AT91C_BASE_DBGU->DBGU_IMR)
 	{
-	    if (AT91C_BASE_DBGU->DBGU_CSR & AT91C_US_TXRDY)
-        {
-            read();
-        }
-        else if (AT91C_BASE_DBGU->DBGU_CSR & AT91C_US_RXRDY)
+	    if (intStatus & AT91C_US_TXRDY)
         {
             displayFromBuffer();
+        }
+        else if (intStatus & AT91C_US_RXRDY)
+        {
+            read();
         }
 	}
 	else
@@ -155,8 +150,7 @@ void DBGUInterruptHandler(void)
 	}
 }
 
-
-void initPIT_IRQ()
+void initDGBU_IRQ()
 {
 	unknownInterrupts = 0;
 	AT91C_BASE_AIC -> AIC_IDCR = 1 << AT91C_ID_SYS;
@@ -172,7 +166,7 @@ int main()
 {
     DBGU_init();
     bufferInit();
-    initPIT_IRQ();
+    initDGBU_IRQ();
     while(1);
 }
  

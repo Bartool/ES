@@ -45,6 +45,12 @@ int put(char input)
 		FIFO.head = 0;
 	return 1;
 }
+ void cleanFifo()
+ {
+ 	FIFO.head = FIFO.tail;
+ 
+ }
+
 int get(char* output)
 {
 	if(FIFO.head == FIFO.tail)
@@ -99,7 +105,6 @@ void displayFromBuffer()
 void read()
 {
 	char input = readChar();
-	int full;
 	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;
 	sendChar(input);
 	AT91C_BASE_DBGU->DBGU_CR=AT91C_US_TXDIS;
@@ -110,14 +115,15 @@ void read()
 	}
 	else
 	{
-		full = put(input);
-		if(full == 0)
+		
+		if(!put(input))
 		{
 			AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;
 			newLine();
 			displayString("Fifo overflow!");
 			newLine();
-			AT91C_BASE_DBGU->DBGU_CR=AT91C_US_TXDIS;
+			
+			
 		}
 	}
 }

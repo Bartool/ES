@@ -1,15 +1,13 @@
 #include "AT91SAM9263.h"
 
-#define CLOCK 1 << 16
-#define DATA 1 << 14
+#define CLOCK 1 << 14
+#define DATA 1 << 12
 #define CS 1 << 15
 #define SLEEP_TIME 1000
 #define MS 6250
 #define PITS_FLAG 1<<0
 
-unsigned int timeCounter;
-unsigned int unknownInterrupts;
-unsigned int temperature;
+int temperature;
 
 void dbgu_print_ascii(const char *a) {}
 
@@ -18,11 +16,16 @@ void clearPITS()
 	AT91C_BASE_PITC-> PITC_PIVR;//clears a PITS flag
 }
 
-void initializeSPI()
+void DBGU_init(void)
 {
-	AT91C_BASE_SYS -> SYS_PIOB_PER = DATA;
-	AT91C_BASE_SYS -> SYS_PIOB_OER= DATA;
-	AT91C_BASE_SYS -> PMC_PCER = CLOCK;
+	AT91C_BASE_DBGU->DBGU_IDR = ALL_INTERRUPTS;//deactivate all interrupts
+	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RSTRX | AT91C_US_RXDIS;//reset and turn off receiver
+	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_RSTTX | AT91C_US_TXDIS;//reset and turn off transmitter
+	AT91C_BASE_PIOC->PIO_ASR = AT91C_PC31_DTXD;//enables peripheral control to transmitter
+	AT91C_BASE_PIOC->PIO_PDR = AT91C_PC31_DTXD;//assigns I/O line to transmitter
+	AT91C_BASE_DBGU->DBGU_BRGR = MCK/(DIVISOR*BAUDRATE);//configure throughout
+	AT91C_BASE_DBGU->DBGU_MR= AT91C_US_CHMODE_NORMAL |  AT91C_US_PAR_NONE;//operation mode
+	AT91C_BASE_DBGU->DBGU_CR = AT91C_US_TXEN;//turn on transmitter
 }
 
 void initializePIT()
@@ -33,50 +36,85 @@ void initializePIT()
 	clearPITS();
 }
 
-void PITInterruptHandler(void)
+void initializeSPI()
 {
-	if(AT91C_BASE_PITC -> PITC_PIMR & AT91C_PITC_PITIEN)
+	AT91C_BASE_SYS -> SYS_PIOB_PER = DATA;
+	AT91C_BASE_SYS -> SYS_PIOB_PER = CLOCK;
+	AT91C_BASE_SYS -> SYS_PIOB_PER = CS;
+	AT91C_BASE_SYS -> SYS_PIOB_OER= DATA;
+	AT91C_BASE_SYS -> SYS_PIOB_ODR= CLOCK;
+}
+
+void sendChar(char letter)
+{
+	while(!(AT91C_BASE_DBGU->DBGU_CSR & AT91C_US_TXRDY));
+	AT91C_BASE_DBGU->DBGU_THR = (unsigned int)letter;
+
+}
+
+void displayString(char* string)
+{
+	unsigned int i;
+	for(i=0; string[i]!='\0'; ++i)
 	{
-	    if(AT91C_BASE_PITC -> PITC_PISR & PITS_FLAG)
-	    {
-	        clearPITS();
-	        timeCounter++;
-	        if(timeCounter == SLEEP_TIME)
-	        {
-	            timeCounter = 0;
-	            invertLED2();
-	        }
-	    }
-	}
-	else
-	{
-	    unknownInterrupts++;
+		sendChar(string[i]);
 	}
 
 }
 
-void initPIT_IRQ()
-{
-	timeCounter = 0;
-	unknownInterrupts = 0;
-	AT91C_BASE_AIC -> AIC_IDCR = 1<< AT91C_ID_SYS;//turn off the system interrupts
-	AT91C_BASE_AIC -> AIC_SVR[AT91C_ID_SYS] = (unsigned int)PITInterruptHandler;
-	AT91C_BASE_AIC -> AIC_SMR[AT91C_ID_SYS] = AT91C_AIC_SRCTYPE_INT_LEVEL_SENSITIVE | AT91C_AIC_PRIOR_LOWEST;//level, 0
-	AT91C_BASE_AIC -> AIC_ICCR = 1 << AT91C_ID_SYS;//clear the interrupt flag for system int.
-	AT91C_BASE_AIC -> AIC_IECR = 1 << AT91C_ID_SYS;//turn on the system interrupts
-	AT91C_BASE_PITC -> PITC_PIMR |= AT91C_PITC_PITIEN;
-	AT91C_BASE_PITC -> PITC_PIMR |= AT91C_PITC_PITEN;
+void sleep(unsigned int iterations)
+{	
+	unsigned int i;
+	for(i =0; i < 200; ++i)
+	{
+		
+		*ptrPIT_MR = PITEN;
+		while(1)
+		{
+			if(*ptrPIT_SR & PT_REACHED)
+				break;
+		}
+	}
 }
 
+void setClock()
+{
+	AT91C_BASE_SYS -> SYS_PIOB_SODR = CLOCK;
+}
 
+void clearClock()
+{
+	AT91C_BASE_SYS -> SYS_PIOB_CODR = CLOCK;
+}
+
+void readSO()
+{
+	int bit;
+	
+	bit = AT91C_BASE_SYS -> SYS_PIOB_PDR= DATA;
+		
+		
+
+}
 
 int main()
 {
     initializeSPI();
     initializePIT();
     initPIT_IRQ();
-
-    while(1);
+	int i;
+    while(1)
+    {
+    	for(i = 0; i < 16; ++i)
+    	{
+    		setClock();
+    		readSO();
+    		clearClock();
+    		sleep(1);
+    	}
+    	displayString(temperature);
+    	sleep(SLEEP_TIME);
+    }
 }
  
  

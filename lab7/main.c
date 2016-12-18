@@ -1,5 +1,6 @@
 #include "AT91SAM9263.h"
 
+#define LED_RIGHT 1 << 29
 #define CLOCK 1 << 14
 #define DATA (1 << 12)
 #define CS 1 << 15
@@ -16,8 +17,8 @@
 
 int sprintf(char * buffer,const char * format,...);
 
-int temperature = 0;
-float realTemperature;
+short temperature = 0;
+float realTemperature = 0;
 
 void dbgu_print_ascii(const char *a) {}
 
@@ -31,10 +32,26 @@ void clearClock()
 	AT91C_BASE_SYS -> SYS_PIOB_CODR = CLOCK;
 }
 
+void clearCS()
+{
+	AT91C_BASE_SYS -> SYS_PIOB_CODR= CS;
+}
+
+void setCS()
+{
+    AT91C_BASE_SYS -> SYS_PIOB_SODR= CS;
+}
 
 void clearPITS()
 {
 	AT91C_BASE_PITC-> PITC_PIVR;//clears a PITS flag
+}
+
+void initializeLEDs()
+{
+	AT91C_BASE_SYS -> SYS_PIOC_PER = LED_RIGHT;
+	AT91C_BASE_SYS -> SYS_PIOC_OER= LED_RIGHT;
+	AT91C_BASE_SYS -> SYS_PIOC_SODR =  LED_RIGHT;
 }
 
 void initializeDBGU(void)
@@ -62,10 +79,10 @@ void initializeSPI()
 	AT91C_BASE_SYS -> SYS_PIOB_PER = DATA;
 	AT91C_BASE_SYS -> SYS_PIOB_PER = CLOCK;
 	AT91C_BASE_SYS -> SYS_PIOB_PER = CS;
-	AT91C_BASE_SYS -> SYS_PIOB_OER= DATA;
-	AT91C_BASE_SYS -> SYS_PIOB_ODR= CLOCK;
-	AT91C_BASE_SYS -> SYS_PIOB_ODR= CS;
-	AT91C_BASE_SYS -> SYS_PIOB_SODR= CS;
+	AT91C_BASE_SYS -> SYS_PIOB_ODR = DATA;
+	AT91C_BASE_SYS -> SYS_PIOB_OER = CLOCK;
+	AT91C_BASE_SYS -> SYS_PIOB_OER = CS;
+	setCS();
 	clearClock();
 }
 
@@ -82,7 +99,6 @@ void displayString(char* string)
 	{
 		sendChar(string[i]);
 	}
-
 }
 
 void sleep(unsigned int iterations)
@@ -100,6 +116,7 @@ void sleep(unsigned int iterations)
 
 void readSO(int bitNumber)
 {
+    temperature = 0;
 	if(AT91C_BASE_SYS -> SYS_PIOB_PDR & DATA)
 		temperature |= 1 << bitNumber;
 	else
@@ -109,19 +126,18 @@ void readSO(int bitNumber)
 void readTemperature()
 {
 	int i;
-	AT91C_BASE_SYS -> SYS_PIOB_CODR= CS;
-	for(i = 0; i < 16; ++i)
+	clearCS();
+	for(i = 0; i < 13; ++i)
 	{
 		setClock();
-		readSO(15-i);
+		readSO(15 - i);
 		clearClock();
 		sleep(1);
 		
 	}
-	AT91C_BASE_SYS -> SYS_PIOB_SODR= CS;
+	setCS();
 	temperature = temperature >> 3;
 	realTemperature = temperature * TEMP_FACTOR;
-	sleep(SLEEP_TIME);
 }
 
 void displayTemperature()
@@ -131,13 +147,28 @@ void displayTemperature()
 	displayString(tempChar);
 }
 
+void LED1_ON()
+{
+	AT91C_BASE_SYS -> SYS_PIOC_CODR =  LED_RIGHT;
+}
+
+void LED1_OFF()
+{
+	AT91C_BASE_SYS -> SYS_PIOC_SODR =  LED_RIGHT;
+}
+
 void manageLED()
 {
-	
+	if(realTemperature > 30)
+	    LED1_ON();
+	else if(realTemperature < 24)
+	    LED1_OFF();
+
 }
 
 int main()
 {
+    initializeLEDs();
     initializeSPI();
     initializePIT();
     initializeDBGU();
@@ -147,6 +178,7 @@ int main()
     	readTemperature();
     	displayTemperature();
     	manageLED();
+    	sleep(SLEEP_TIME);
     }
 }
  

@@ -1,8 +1,9 @@
 #include "AT91SAM9263.h"
+#include <stdio.h>
 
 #define LED_RIGHT 1 << 29
 #define CLOCK 1 << 14
-#define DATA (1 << 12)
+#define DATA 1 << 12
 #define CS 1 << 15
 #define SLEEP_TIME 1000
 #define MS 6250
@@ -14,8 +15,6 @@
 #define DIVISOR 16
 #define ALL_INTERRUPTS 0xFFFFFFFF
 #define TEMP_FACTOR 0.0625
-
-int sprintf(char * buffer,const char * format,...);
 
 short temperature = 0;
 float realTemperature = 0;
@@ -82,6 +81,7 @@ void initializeSPI()
 	AT91C_BASE_SYS -> SYS_PIOB_ODR = DATA;
 	AT91C_BASE_SYS -> SYS_PIOB_OER = CLOCK;
 	AT91C_BASE_SYS -> SYS_PIOB_OER = CS;
+	AT91C_BASE_SYS -> SYS_PMC_PCER = 1 << 3;
 	setCS();
 	clearClock();
 }
@@ -107,7 +107,7 @@ void sleep(unsigned int iterations)
     AT91C_BASE_PITC -> PITC_PIMR |= PITEN;
     for (i=0; i<iterations; i++)
     {
-        while(!(AT91C_BASE_PITC -> PITC_PISR & 1<<0)){}
+        while(!(AT91C_BASE_PITC -> PITC_PISR & PITS_FLAG)){}
         clearPITS();
     }
     AT91C_BASE_PITC -> PITC_PIMR &= ~PITEN;
@@ -116,24 +116,23 @@ void sleep(unsigned int iterations)
 
 void readSO(int bitNumber)
 {
-    temperature = 0;
-	if(AT91C_BASE_SYS -> SYS_PIOB_PDR & DATA)
+	if(AT91C_BASE_SYS -> SYS_PIOB_PDSR & DATA)
 		temperature |= 1 << bitNumber;
 	else
-		temperature |= ~(1 << bitNumber);
+		temperature &= ~(1 << bitNumber);
 }
 
 void readTemperature()
 {
-	int i;
+	volatile int i;
 	clearCS();
-	for(i = 0; i < 13; ++i)
+	for(i = 15; i >= 0; --i)
 	{
-		setClock();
-		readSO(15 - i);
 		clearClock();
-		sleep(1);
-		
+		sleep(10);
+		readSO(i);
+		setClock();
+		sleep(10);
 	}
 	setCS();
 	temperature = temperature >> 3;
@@ -145,6 +144,7 @@ void displayTemperature()
 	char tempChar[8];
 	sprintf(tempChar, "%f", realTemperature);
 	displayString(tempChar);
+	displayString("\n\r");
 }
 
 void LED1_ON()
@@ -157,13 +157,12 @@ void LED1_OFF()
 	AT91C_BASE_SYS -> SYS_PIOC_SODR =  LED_RIGHT;
 }
 
-void manageLED()
+void termostate()
 {
-	if(realTemperature > 30)
+	if(realTemperature >= 24)
 	    LED1_ON();
 	else if(realTemperature < 24)
 	    LED1_OFF();
-
 }
 
 int main()
@@ -177,7 +176,7 @@ int main()
     {
     	readTemperature();
     	displayTemperature();
-    	manageLED();
+    	termostate();
     	sleep(SLEEP_TIME);
     }
 }

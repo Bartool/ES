@@ -15,9 +15,10 @@
 #define DIVISOR 16
 #define ALL_INTERRUPTS 0xFFFFFFFF
 #define TEMP_FACTOR 0.0625
+#define PIOB_CLOCK 1 << 3
 
 short temperature = 0;
-float realTemperature = 0;
+float convertedTemperature = 0;
 
 void dbgu_print_ascii(const char *a) {}
 
@@ -49,8 +50,8 @@ void clearPITS()
 void initializeLEDs()
 {
 	AT91C_BASE_SYS -> SYS_PIOC_PER = LED_RIGHT;
-	AT91C_BASE_SYS -> SYS_PIOC_OER= LED_RIGHT;
-	AT91C_BASE_SYS -> SYS_PIOC_SODR =  LED_RIGHT;
+	AT91C_BASE_SYS -> SYS_PIOC_OER = LED_RIGHT;
+	AT91C_BASE_SYS -> SYS_PIOC_SODR = LED_RIGHT;
 }
 
 void initializeDBGU(void)
@@ -81,7 +82,7 @@ void initializeSPI()
 	AT91C_BASE_SYS -> SYS_PIOB_ODR = DATA;
 	AT91C_BASE_SYS -> SYS_PIOB_OER = CLOCK;
 	AT91C_BASE_SYS -> SYS_PIOB_OER = CS;
-	AT91C_BASE_SYS -> SYS_PMC_PCER = 1 << 3;
+	AT91C_BASE_SYS -> SYS_PMC_PCER = PIOB_CLOCK;
 	setCS();
 	clearClock();
 }
@@ -113,7 +114,6 @@ void sleep(unsigned int iterations)
     AT91C_BASE_PITC -> PITC_PIMR &= ~PITEN;
 }
 
-
 void readSO(int bitNumber)
 {
 	if(AT91C_BASE_SYS -> SYS_PIOB_PDSR & DATA)
@@ -124,25 +124,24 @@ void readSO(int bitNumber)
 
 void readTemperature()
 {
-	volatile int i;
+	int i;
 	clearCS();
 	for(i = 15; i >= 0; --i)
 	{
-		clearClock();
-		sleep(10);
-		readSO(i);
 		setClock();
-		sleep(10);
+		sleep(1);
+		readSO(i);
+		clearClock();
+		sleep(1);
 	}
 	setCS();
-	temperature = temperature >> 3;
-	realTemperature = temperature * TEMP_FACTOR;
+	convertedTemperature = (temperature >> 3) * TEMP_FACTOR;
 }
 
 void displayTemperature()
 {
 	char tempChar[8];
-	sprintf(tempChar, "%f", realTemperature);
+	sprintf(tempChar, "%f", convertedTemperature);
 	displayString(tempChar);
 	displayString("\n\r");
 }
@@ -159,9 +158,9 @@ void LED1_OFF()
 
 void termostate()
 {
-	if(realTemperature >= 24)
+	if(convertedTemperature >= 25)
 	    LED1_ON();
-	else if(realTemperature < 24)
+	else if(convertedTemperature < 25)
 	    LED1_OFF();
 }
 
